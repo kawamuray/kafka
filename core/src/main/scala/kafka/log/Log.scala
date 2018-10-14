@@ -1174,8 +1174,9 @@ class Log(@volatile var dir: File,
         // the message is appended but before the nextOffsetMetadata is updated. In that case the second fetch may
         // cause OffsetOutOfRangeException. To solve that, we cap the reading up to exposed position instead of the log
         // end of the active segment.
+        val isLastEntry = segmentEntry == segments.lastEntry
         val maxPosition = {
-          if (segmentEntry == segments.lastEntry) {
+          if (isLastEntry) {
             val exposedPos = nextOffsetMetadata.relativePositionInSegment.toLong
             // Check the segment again in case a new segment has just rolled out.
             if (segmentEntry != segments.lastEntry)
@@ -1191,6 +1192,17 @@ class Log(@volatile var dir: File,
         if (fetchInfo == null) {
           segmentEntry = segments.higherEntry(segmentEntry.getKey)
         } else {
+          // For last entries we assume that it is hot enough to still have all data in page cache.
+          // Most of fetch requests are fetching from the tail of the log, so this optimization should save
+          // call of additional sendfile() targeting /dev/null for populating page cache significantly.
+          if (!isLastEntry && fetchInfo.records.isInstanceOf[FileRecords]) {
+            try {
+              fetchInfo.records.asInstanceOf[FileRecords].prepareForRead()
+            } catch {
+              case e: Throwable => warn("failed to prepare cache for read", e)
+            }
+          }
+
           return if (includeAbortedTxns)
             addAbortedTransactions(startOffset, segmentEntry, fetchInfo)
           else

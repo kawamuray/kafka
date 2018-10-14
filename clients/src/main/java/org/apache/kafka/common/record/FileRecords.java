@@ -391,6 +391,18 @@ public class FileRecords extends AbstractRecords implements Closeable {
         return new RecordBatchIterator<>(inputStream);
     }
 
+
+    @SuppressWarnings("UnnecessaryFullyQualifiedName")
+    private static final java.nio.file.Path DEVNULL_PATH = new File("/dev/null").toPath();
+    public void prepareForRead() throws IOException {
+        long size = Math.min(channel.size(), end) - start;
+        //noinspection UnnecessaryFullyQualifiedName
+        try (FileChannel devnullChannel = FileChannel.open(DEVNULL_PATH,
+                                                           java.nio.file.StandardOpenOption.WRITE)) {
+            channel.transferTo(start, size, devnullChannel);
+        }
+    }
+
     public static FileRecords open(File file,
                                    boolean mutable,
                                    boolean fileAlreadyExists,
